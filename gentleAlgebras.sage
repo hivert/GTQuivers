@@ -1,6 +1,4 @@
 
-# coding: utf-8
-
 # ALGÈBRES AIMABLES
 # 
 # Une algèbre aimable $A = kQ/I$ est l'algèbre d'un carquois $Q$ avec relations $I$ tels que :
@@ -8,8 +6,6 @@
 #    - tout sommet est incident à au plus 2 flèches entrantes et 2 flèches sortantes,
 #    - pour toute flèche $\beta$, il y a au plus une flèche $\alpha$ telle que $\alpha\beta \in I$ (resp. telle que $\alpha\beta \notin I$),
 #    - pour toute flèche $\beta$, il y a au plus une flèche $\gamma$ telle que $\beta\gamma \in I$ (resp. telle que $\beta\gamma \notin I$).
-
-from mygap.mygap import mygap
 
 class BoundQuiver(DiGraph):
     def __init__(self, data=None, ideal=[], **args):
@@ -76,58 +72,53 @@ class BoundQuiver(DiGraph):
                 return False
         return True
     
-    def semi_group(self):
-        r'''
-        Returns the semigroup of the bound quiver
-        'z' is the zero.
-        '''
-        Q = self
-        I = self._ideal
-        FSG = mygap.FreeSemigroup(Q.vertices() + Q.edge_labels() + ['z'])
-        edge_gens = {e:g for (e,g) in zip(Q.vertices() + Q.edge_labels() + ['z'], FSG.semigroup_generators())}
-        zeros = []
-        for u in Q.vertices():
-            zeros.append([edge_gens[u]^2, edge_gens[u]]) # eu is an idempotent
-            for v in Q.vertices():
-                if u != v:
-                    zeros.append([edge_gens[u] * edge_gens[v], edge_gens['z']]) # eu * ev = 0
-        for a in Q.edges():
-            zeros.append([edge_gens[a[2]] * edge_gens['z'], edge_gens['z']]) # a*0 = 0
-            zeros.append([edge_gens['z'] * edge_gens[a[2]], edge_gens['z']]) # 0*a = 0
-            for u in Q.vertices():
-                zeros.append([edge_gens[u] * edge_gens[a[2]], edge_gens[a[2]] if u == a[0] else edge_gens['z']]) # if a = (u,v) then eu*a = a else eu*a = 0
-                zeros.append([edge_gens[a[2]] * edge_gens[u], edge_gens[a[2]] if u == a[1] else edge_gens['z']]) # if a = (u,v) then a*ev = a else a*ev = 0
-        for i in I:
-            zeros.append([edge_gens[i[0]] * edge_gens[i[1]], edge_gens['z']]) # a*b is not a path
-        return FSG / zeros
-
-    def quiver_paths(self):
-        'Returns all paths on the quiver'
-        sg = self.semi_group()
-        if not sg.is_finite():
-            raise ValueError('your algebra is not finite...')
+    def source(self, edge):
+        'Get the source of an edge'
+        if self.is_idempotent_edge(edge):
+            return edge
         else:
-            sg._refine_category_()
-            return [Word(str(path).split('*')) for path in sg.list()]
+            return [i[0] for i in self.edges() if i[2] == edge][0] 
+
+    def target(self, edge):
+        'Get the target of an edge'
+        if self.is_idempotent_edge(edge):
+            return edge
+        else:
+            return [i[1] for i in self.edges() if i[2] == edge][0]    
+
+    def is_idempotent_path(self, path):
+        'Check if a path is idempotent'
+        return len(path) == 1 and self.is_idempotent_edge(path[0])
+
+    def is_idempotent_edge(self, edge):
+        'Check if an edge is idempotent'
+        return edge[0] == 'e' or edge == 'z'
     
-    def maximal_quiver_paths(self):
-        'Returns all maximal paths on the quiver'
-        nonTrivialPaths = [w for w in self.quiver_paths() if w[0][0] not in ['e','z']]
-        return Poset((nonTrivialPaths, lambda v,w: v.is_factor(w))).maximal_elements()
-    
-    def _walks_quiver(self):
-        'Returns the quiver which will enable to compute all walks'
-        res = BoundQuiver(self, ideal=deepcopy(self._ideal), name=self.name(), pos=deepcopy(self._pos))
-        for s,t,l in self.edges():
-            lm = l+'-'
-            res.add_edge(t,s,lm)
-            res._ideal.append([l,lm])
-            res._ideal.append([lm,l])
+    def quiver_paths(self, with_idems=False):
+        'Returns all paths on the quiver'
+        next_possible_arrows = {l1:[l2 for s2,t2,l2 in self.edges() if s2 == t1 and (l1,l2) not in self._ideal] for s1,t1,l1 in self.edges()}
+        start = [[l] for l in self.edge_labels()]
+        res = list(RecursivelyEnumeratedSet(start, lambda x: [x+[n] for n in next_possible_arrows[x[-1]]], structure='forest'))
+        if with_idems:
+            res += self.vertices()
         return res
-    
+
     def quiver_walks(self):
-        'Returns all walks on the quiver'
-        return self._walks_quiver().maximal_quiver_paths()
+        'Returns all walks on the quiver, that is maximal walks using arrows or antiarrows'
+        from collections import defaultdict
+        next_possible_arrows = defaultdict(list)
+        for s1,t1,l1 in self.edges():
+            for s2,t2,l2 in self.edges():
+                if s2 == t1 and (l1,l2) not in self._ideal:
+                    next_possible_arrows[l1].append(l2)
+                    next_possible_arrows[l2+'-'].append(l1+'-')
+                if t2 == t1 and l1 != l2:
+                    next_possible_arrows[l1].append(l2+'-')
+                if s2 == s1 and l1 != l2:
+                    next_possible_arrows[l1+'-'].append(l2)
+        start = [[l] for l in self.edge_labels() if l+'-' not in next_possible_arrows] + [[l+'-'] for l in self.edge_labels() if l not in next_possible_arrows]
+        return list(RecursivelyEnumeratedSet(start, lambda x: [x+[n] for n in next_possible_arrows[x[-1]]], structure='forest', post_process = lambda x: x if x[-1] not in next_possible_arrows else None))
+
 
 class GentleQuiver(BoundQuiver):
     # we need all these paramters to properly work with DiGraph
@@ -143,7 +134,7 @@ class GentleQuiver(BoundQuiver):
     def is_gentle(self):
         return True
 
-    def blossomingQuiver(self):
+    def blossoming_quiver(self):
         'Return the blossoming quiver of the gentle quiver'
         I = self.ideal()
         starts = [s for s,t in I]
@@ -188,3 +179,8 @@ class GentleQuiver(BoundQuiver):
 
         bQ._ideal = bI
         return bQ
+
+    def blossoming_quiver_walks(self):
+        'Returns all walks on the blossoming quiver'
+        return self.blossoming_quiver().quiver_walks()
+
