@@ -21,15 +21,15 @@ class BoundQuiver(DiGraph):
     # Redefines show method
     def show(self, **args):
         DiGraph.show(self, edge_labels=True, **args)
-    
+
     def edges_in(self, vertex):
-        'Returns the incoming edges to a vertex'
-        return [e for s,t,e in self.edges() if t == vertex]
+        'Returns the labels of the incoming edges to a vertex'
+        return [l for s,t,l in self.edges() if t == vertex]
 
     def edges_out(self, vertex):
-        'Returns the outgoing edges to a vertex'
-        return [e for s,t,e in self.edges() if s == vertex]
-   
+        'Returns the labels of the outgoing edges to a vertex'
+        return [l for s,t,l in self.edges() if s == vertex]
+
     def ideal(self):
         'Returns the ideal of the bound quiver'
         return self._ideal
@@ -71,54 +71,91 @@ class BoundQuiver(DiGraph):
             if (len(ins) > 1 and len(outs) > 0) or (len(ins) > 0 and len(outs) > 1):
                 return False
         return True
-    
-    def source(self, edge):
-        'Get the source of an edge'
-        if self.is_idempotent_edge(edge):
-            return edge
+
+    def inverse(self, l):
+        'Returns the inverse of a label'
+        if l[-1] == '-':
+            return l[:-1]
         else:
-            return [i[0] for i in self.edges() if i[2] == edge][0] 
+            return l+'-'
 
-    def target(self, edge):
-        'Get the target of an edge'
-        if self.is_idempotent_edge(edge):
-            return edge
-        else:
-            return [i[1] for i in self.edges() if i[2] == edge][0]    
+    def inverse_walk(self, w):
+        'Returns the inverse of a walk'
+        res = []
+        for i in range(len(w)-2, 0, -2):
+            res += [w[i+1], self.inverse(w[i])]
+        return tuple(res + [w[0]])
 
-    def is_idempotent_path(self, path):
-        'Check if a path is idempotent'
-        return len(path) == 1 and self.is_idempotent_edge(path[0])
+    def same_signs(self, l1, l2):
+        return (l1[-1] == '-' and l2[-1] == '-') or (l1[-1] != '-' and l2[-1] != '-') 
 
-    def is_idempotent_edge(self, edge):
-        'Check if an edge is idempotent'
-        return edge[0] == 'e' or edge == 'z'
-    
+    def different_signs(self, l1, l2):
+        return (l1[-1] == '-' and l2[-1] != '-') or (l1[-1] != '-' and l2[-1] == '-') 
+
     def quiver_paths(self, with_idems=False):
-        'Returns all paths on the quiver'
-        next_possible_arrows = {l1:[l2 for s2,t2,l2 in self.edges() if s2 == t1 and (l1,l2) not in self._ideal] for s1,t1,l1 in self.edges()}
-        start = [[l] for l in self.edge_labels()]
-        res = list(RecursivelyEnumeratedSet(start, lambda x: [x+[n] for n in next_possible_arrows[x[-1]]], structure='forest'))
+        r'''
+            Returns all paths on the quiver.
+            Paths are represented by tuples (v0, a1, v1, ..., ak, vk) where vi are vertices and ai are arcs. 
+        '''
+        next_possible_arrows = {l1:[[l2,t2] for s2,t2,l2 in self.edges() if s2 == t1 and (l1,l2) not in self._ideal] for s1,t1,l1 in self.edges()}
+        start = [tuple([s,l,t]) for s,t,l in self.edges()]
+        res = RecursivelyEnumeratedSet(start, lambda x: [tuple(list(x)+n) for n in next_possible_arrows[x[-2]]], structure='forest')
         if with_idems:
             res += self.vertices()
         return res
 
     def quiver_walks(self):
-        'Returns all walks on the quiver, that is maximal walks using arrows or antiarrows'
+        r'''
+            Returns all walks on the quiver, that is maximal walks using arrows or antiarrows
+            Walks are represented by tuples (v0, a1, v1, ..., ak, vk) where vi are vertices and ai are arcs. 
+        '''
         from collections import defaultdict
         next_possible_arrows = defaultdict(list)
         for s1,t1,l1 in self.edges():
             for s2,t2,l2 in self.edges():
                 if s2 == t1 and (l1,l2) not in self._ideal:
-                    next_possible_arrows[l1].append(l2)
-                    next_possible_arrows[l2+'-'].append(l1+'-')
+                    next_possible_arrows[l1].append([l2,t2])
+                    next_possible_arrows[self.inverse(l2)].append([self.inverse(l1),s1])
                 if t2 == t1 and l1 != l2:
-                    next_possible_arrows[l1].append(l2+'-')
+                    next_possible_arrows[l1].append([self.inverse(l2),s2])
                 if s2 == s1 and l1 != l2:
-                    next_possible_arrows[l1+'-'].append(l2)
-        start = [[l] for l in self.edge_labels() if l+'-' not in next_possible_arrows] + [[l+'-'] for l in self.edge_labels() if l not in next_possible_arrows]
-        return list(RecursivelyEnumeratedSet(start, lambda x: [x+[n] for n in next_possible_arrows[x[-1]]], structure='forest', post_process = lambda x: x if x[-1] not in next_possible_arrows else None))
+                    next_possible_arrows[self.inverse(l1)].append([l2,t2])
+        start = [tuple([s,l,t]) for s,t,l in self.edges() if next_possible_arrows[self.inverse(l)] == []] + [tuple([t,self.inverse(l),s]) for s,t,l in self.edges() if next_possible_arrows[l] == []]
+        return RecursivelyEnumeratedSet(start, lambda x: [tuple(list(x)+n) for n in next_possible_arrows[x[-2]]], structure='forest', post_process = lambda x: x if next_possible_arrows[x[-2]] == [] else None)
 
+    def undirected_quiver_walks(self):
+        'Returns only one representative per undirected walk of the quiver'
+        res = []
+        for w in self.quiver_walks():
+            if self.inverse_walk(w) not in res:
+                res.append(w)
+        return res
+
+    def is_straight(self, w):
+        r'''
+        Checks that a walk is straight.
+        Works both for directed or undirected walks.
+        '''
+        # be carefull that only odd indices correspond to arcs.
+        return len([w[2*i+1] for i in range(len(w)/2) if w[2*i+1][-1] == '-']) in [0,len(w)/2]
+
+    def kissing_walks(self, w1, w2):
+        'Tests if two walks are kissing'
+        for i in range(1, len(w1)-2, 2):
+            for j in range(1, len(w2)-2, 2):
+                if w1[i] != w2[j] and w1[i+1] == w2[j+1]:
+                    k = 2
+                    while i+k < len(w1) and j+k < len(w2) and w1[i+k] == w2[j+k]:
+                        k += 2
+                    if i+k < len(w1) and j+k < len(w2) and self.different_signs(w1[i], w1[i+k]) and self.different_signs(w2[j], w2[j+k]):
+                        # in case the common substring is restricted to a vertex, we need extra care
+                        if k > 2 or (w1[i] != self.inverse(w2[j+k]) and w1[i+k] != self.inverse(w2[j])):
+                            return True
+        return False
+
+    def kissing_undirected_walks(self, w1, w2):
+        'Tests if two undirected walks are kissing'
+        return self.kissing_walks(w1, w2) or self.kissing_walks(w1, self.inverse_walk(w2))
 
 class GentleQuiver(BoundQuiver):
     # we need all these paramters to properly work with DiGraph
@@ -180,7 +217,28 @@ class GentleQuiver(BoundQuiver):
         bQ._ideal = bI
         return bQ
 
+    def koszul_dual(self):
+        r'''
+            Returns the Koszul dual of the quiver.
+            Relations and non-relations are exchanged.
+        '''
+        res = self.copy()
+        res._ideal = [(l1, l2) for s1,t1,l1 in self.edges() for s2,t2,l2 in self.edges() if t1 == s2 and (l1,l2) not in self._ideal]
+        return res
+
     def blossoming_quiver_walks(self):
         'Returns all walks on the blossoming quiver'
         return self.blossoming_quiver().quiver_walks()
 
+    def undirected_blossoming_quiver_walks(self):
+        'Returns all undirected walks on the blossoming quiver'
+        return self.blossoming_quiver().undirected_quiver_walks()
+
+    def non_kissing_complex(self):
+        'Returns the non-kissing complex of the gentle quiver'
+        non_self_kissing_walks = [w for w in self.undirected_blossoming_quiver_walks() if not self.is_straight(w) and not self.kissing_undirected_walks(w, w)]
+        non_kissing_graph = Graph([non_self_kissing_walks, lambda w1, w2: w1 != w2 and not self.kissing_undirected_walks(w1, w2)])
+        return non_kissing_graph.clique_complex()
+
+def quiver_type_A(n):
+    return GentleQuiver({'e'+str(i):{'e'+str(i+1):['a'+str(i+1)]} for i in range(n)})
