@@ -9,7 +9,7 @@
 #    - pour toute flèche $\beta$, il y a au plus une flèche $\alpha$ telle que $\alpha\beta \in I$ (resp. telle que $\alpha\beta \notin I$),
 #    - pour toute flèche $\beta$, il y a au plus une flèche $\gamma$ telle que $\beta\gamma \in I$ (resp. telle que $\beta\gamma \notin I$).
 
-from mygap import mygap
+from mygap.mygap import mygap
 
 class BoundQuiver(DiGraph):
     def __init__(self, data=None, ideal=[], **args):
