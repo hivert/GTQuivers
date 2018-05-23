@@ -22,13 +22,13 @@ class BoundQuiver(DiGraph):
     def show(self, **args):
         DiGraph.show(self, edge_labels=True, **args)
 
-    def edges_in(self, vertex):
-        'Returns the labels of the incoming edges to a vertex'
-        return [l for s,t,l in self.edges() if t == vertex]
+    def edges_in(self, v):
+        'Returns the labels of the incoming edges to a vertex v'
+        return [l for s,t,l in self.incoming_edges(v)]
 
-    def edges_out(self, vertex):
-        'Returns the labels of the outgoing edges to a vertex'
-        return [l for s,t,l in self.edges() if s == vertex]
+    def edges_out(self, v):
+        'Returns the labels of the outgoing edges to a vertex v'
+        return [l for s,t,l in self.outgoing_edges(v)]
 
     def ideal(self):
         'Returns the ideal of the bound quiver'
@@ -72,7 +72,7 @@ class BoundQuiver(DiGraph):
                 return False
         return True
 
-    def inverse(self, l):
+    def inverse_label(self, l):
         'Returns the inverse of a label'
         if l[-1] == '-':
             return l[:-1]
@@ -83,13 +83,15 @@ class BoundQuiver(DiGraph):
         'Returns the inverse of a walk'
         res = []
         for i in range(len(w)-2, 0, -2):
-            res += [w[i+1], self.inverse(w[i])]
+            res += [w[i+1], self.inverse_label(w[i])]
         return tuple(res + [w[0]])
 
     def same_signs(self, l1, l2):
+        'Tests whether the two labels l1 and l2 have the same sign'
         return (l1[-1] == '-' and l2[-1] == '-') or (l1[-1] != '-' and l2[-1] != '-') 
 
     def different_signs(self, l1, l2):
+        'Tests whether the two labels l1 and l2 have the distinct sign'
         return (l1[-1] == '-' and l2[-1] != '-') or (l1[-1] != '-' and l2[-1] == '-') 
 
     def quiver_paths(self, with_idems=False):
@@ -115,12 +117,12 @@ class BoundQuiver(DiGraph):
             for s2,t2,l2 in self.edges():
                 if s2 == t1 and (l1,l2) not in self._ideal:
                     next_possible_arrows[l1].append([l2,t2])
-                    next_possible_arrows[self.inverse(l2)].append([self.inverse(l1),s1])
+                    next_possible_arrows[self.inverse_label(l2)].append([self.inverse_label(l1),s1])
                 if t2 == t1 and l1 != l2:
-                    next_possible_arrows[l1].append([self.inverse(l2),s2])
+                    next_possible_arrows[l1].append([self.inverse_label(l2),s2])
                 if s2 == s1 and l1 != l2:
-                    next_possible_arrows[self.inverse(l1)].append([l2,t2])
-        start = [tuple([s,l,t]) for s,t,l in self.edges() if next_possible_arrows[self.inverse(l)] == []] + [tuple([t,self.inverse(l),s]) for s,t,l in self.edges() if next_possible_arrows[l] == []]
+                    next_possible_arrows[self.inverse_label(l1)].append([l2,t2])
+        start = [tuple([s,l,t]) for s,t,l in self.edges() if next_possible_arrows[self.inverse_label(l)] == []] + [tuple([t,self.inverse_label(l),s]) for s,t,l in self.edges() if next_possible_arrows[l] == []]
         return RecursivelyEnumeratedSet(start, lambda x: [tuple(list(x)+n) for n in next_possible_arrows[x[-2]]], structure='forest', post_process = lambda x: x if next_possible_arrows[x[-2]] == [] else None)
 
     def undirected_quiver_walks(self):
@@ -141,21 +143,40 @@ class BoundQuiver(DiGraph):
 
     def kissing_walks(self, w1, w2):
         'Tests if two walks are kissing'
-        for i in range(1, len(w1)-2, 2):
-            for j in range(1, len(w2)-2, 2):
+        for i in range(1, len(w1)-3, 2):
+            for j in range(1, len(w2)-3, 2):
                 if w1[i] != w2[j] and w1[i+1] == w2[j+1]:
                     k = 2
                     while i+k < len(w1) and j+k < len(w2) and w1[i+k] == w2[j+k]:
                         k += 2
                     if i+k < len(w1) and j+k < len(w2) and self.different_signs(w1[i], w1[i+k]) and self.different_signs(w2[j], w2[j+k]):
                         # in case the common substring is restricted to a vertex, we need extra care
-                        if k > 2 or (w1[i] != self.inverse(w2[j+k]) and w1[i+k] != self.inverse(w2[j])):
+                        if k > 2 or (w1[i] != self.inverse_label(w2[j+k]) and w1[i+k] != self.inverse_label(w2[j])):
                             return True
         return False
 
     def kissing_undirected_walks(self, w1, w2):
         'Tests if two undirected walks are kissing'
         return self.kissing_walks(w1, w2) or self.kissing_walks(w1, self.inverse_walk(w2))
+
+    def kissing_number(self, w1, w2):
+        'Returns the number of kisses between w1 and w2'
+        kn = 0
+        for i in range(1, len(w1)-3, 2):
+            for j in range(1, len(w2)-3, 2):
+                if w1[i] != w2[j] and w1[i+1] == w2[j+1]:
+                    k = 2
+                    while i+k < len(w1) and j+k < len(w2) and w1[i+k] == w2[j+k]:
+                        k += 2
+                    if i+k < len(w1) and j+k < len(w2) and self.different_signs(w1[i], w1[i+k]) and self.different_signs(w2[j], w2[j+k]):
+                        # in case the common substring is restricted to a vertex, we need extra care
+                        if k > 2 or (w1[i] != self.inverse_label(w2[j+k]) and w1[i+k] != self.inverse_label(w2[j])):
+                            kn += 1
+        return kn
+
+    def total_kissing_number(self, w):
+        'Returns the total kissing number of w, that is the total number of kisses of w with another walk'
+        return add([self.kissing_number(w,w2) for w2 in self.quiver_walks()])
 
 class GentleQuiver(BoundQuiver):
     # we need all these paramters to properly work with DiGraph
@@ -171,6 +192,7 @@ class GentleQuiver(BoundQuiver):
     def is_gentle(self):
         return True
 
+    @cached_method
     def blossoming_quiver(self):
         'Return the blossoming quiver of the gentle quiver'
         I = self.ideal()
@@ -234,11 +256,37 @@ class GentleQuiver(BoundQuiver):
         'Returns all undirected walks on the blossoming quiver'
         return self.blossoming_quiver().undirected_quiver_walks()
 
+    def relevant_walks(self):
+        r'''
+            Returns the walks that are neither straight nor self-kissing.
+            These are the vertices of the non-kissing complex
+        '''
+        return [w for w in self.undirected_blossoming_quiver_walks() if not self.is_straight(w) and not self.kissing_undirected_walks(w, w)]
+    
     def non_kissing_complex(self):
         'Returns the non-kissing complex of the gentle quiver'
-        non_self_kissing_walks = [w for w in self.undirected_blossoming_quiver_walks() if not self.is_straight(w) and not self.kissing_undirected_walks(w, w)]
-        non_kissing_graph = Graph([non_self_kissing_walks, lambda w1, w2: w1 != w2 and not self.kissing_undirected_walks(w1, w2)])
+        non_kissing_graph = Graph([self.relevant_walks(), lambda w1, w2: w1 != w2 and not self.kissing_undirected_walks(w1, w2)])
         return non_kissing_graph.clique_complex()
 
+    def g_vector(self, w):
+        'Returns the g-vector of a walk w'
+        res = {v:0 for v in self.vertices()}
+        for i in range(2, len(w)-2, 2):
+            if w[i-1][-1] == '-' and w[i+1][-1] != '-':
+                res[w[i]] += -1
+            if w[i-1][-1] != '-' and w[i+1][-1] == '-':
+                    res[w[i]] += 1
+        return vector([res[v] for v in self.vertices()])
+
+    def g_vector_fan(self):
+        'Returns the g-vector fan of the quiver'
+        nkc = self.non_kissing_complex()
+        all_g_vectors = {w: self.g_vector(w) for w in nkc.vertices()}
+        return Fan([Cone([all_g_vectors[w] for w in f]) for f in nkc.facets()])
+
+    def non_kissing_associahedron(self):
+        'Returns the non-kissing associahedron associated to the quiver'
+        return Polyhedron(ieqs=[[self.blossoming_quiver().total_kissing_number(w)] + list(self.g_vector(w)) for w in self.relevant_walks()])
+
 def quiver_type_A(n):
-    return GentleQuiver({'e'+str(i):{'e'+str(i+1):['a'+str(i+1)]} for i in range(n)})
+    return GentleQuiver({'e'+str(i):{'e'+str(i+1):['a'+str(i+1)]} for i in range(1,n)})
