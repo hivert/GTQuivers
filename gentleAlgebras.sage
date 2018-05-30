@@ -94,23 +94,58 @@ class BoundQuiver(DiGraph):
         'Test whether the two labels l1 and l2 have the distinct sign'
         return (l1[-1] == '-' and l2[-1] != '-') or (l1[-1] != '-' and l2[-1] == '-') 
 
-    def quiver_paths(self, with_idems=False):
+    # generation of all paths and walks 
+
+    def enumerate_paths(self, start, nexts, maximal=True):
+        start = [(p, set(p[1])) for p in start]
+        def children((p,s)):
+            for n in nexts[p[-2]]:
+                if n[0] in s:
+                    raise ValueError, "infinitely many paths"
+                yield p+n, s.union({n[0]})
+        if maximal:
+            def post_process((p,s)):
+                return None if nexts[p[-2]] else p
+        else:
+            def post_process((p,s)):
+                return p
+        return RecursivelyEnumeratedSet(start, children, structure='forest', post_process=post_process, category=EnumeratedSets().Finite())
+
+    def start_path(self):
+        return [(s,l,t) for s,t,l in self.edges()]
+
+    def next_possible_arrows_path(self):
+        return {l1:[(l2,t2) for s2,t2,l2 in self.edges() if s2 == t1 and (l1,l2) not in self._ideal] for s1,t1,l1 in self.edges()}
+
+    def quiver_paths(self, with_idempotents=False):
         r'''
-            Return all paths on the quiver.
-            Paths are represented by tuples (v0, a1, v1, ..., ak, vk) where vi are vertices and ai are arcs. 
+        Return all paths on the quiver.
+        
+        Paths are represented by tuples (v0, a1, v1, ..., ak, vk) where vi are vertices and ai are arcs.
+        
+        EXAMPLES::
+
+            sage: Q = BoundQuiver({'e1':{'e2':['a','b']}, 'e2':{'e3':['c']}}, [])
+            sage: list(Q.quiver_paths(with_idempotents=True))
+            [('e1',),
+             ('e2',),
+             ('e3',),
+             ('e1', 'a', 'e2'),
+             ('e1', 'a', 'e2', 'c', 'e3'),
+             ('e1', 'b', 'e2'),
+             ('e1', 'b', 'e2', 'c', 'e3'),
+             ('e2', 'c', 'e3')]
         '''
-        next_possible_arrows = {l1:[(l2,t2) for s2,t2,l2 in self.edges() if s2 == t1 and (l1,l2) not in self._ideal] for s1,t1,l1 in self.edges()}
-        start = [(s,l,t) for s,t,l in self.edges()]
-        res = RecursivelyEnumeratedSet(start, lambda x: [x+n for n in next_possible_arrows[x[-2]]], structure='forest')
-        if with_idems:
-            res += self.vertices()
+        res = self.enumerate_paths(self.start_path(), self.next_possible_arrows_path(), maximal=False)
+        if with_idempotents:
+            return DisjointUnionEnumeratedSets([FiniteEnumeratedSet([(v,) for v in self.vertices()]), res])
         return res
 
-    def quiver_walks(self):
-        r'''
-            Return all walks on the quiver, that is maximal walks using arrows or antiarrows
-            Walks are represented by tuples (v0, a1, v1, ..., ak, vk) where vi are vertices and ai are arcs. 
-        '''
+    def start_walk(self):
+        return [(s,l,t) for s,t,l in self.edges() if self.next_possible_arrows_walk()[self.inverse_label(l)] == []] + [(t,self.inverse_label(l),s) for s,t,l in self.edges() if self.next_possible_arrows_walk()[l] == []]
+
+    @cached_method
+    def next_possible_arrows_walk(self):
         from collections import defaultdict
         next_possible_arrows = defaultdict(list)
         for s1,t1,l1 in self.edges():
@@ -122,8 +157,14 @@ class BoundQuiver(DiGraph):
                     next_possible_arrows[l1].append((self.inverse_label(l2),s2))
                 if s2 == s1 and l1 != l2:
                     next_possible_arrows[self.inverse_label(l1)].append((l2,t2))
-        start = [(s,l,t) for s,t,l in self.edges() if next_possible_arrows[self.inverse_label(l)] == []] + [(t,self.inverse_label(l),s) for s,t,l in self.edges() if next_possible_arrows[l] == []]
-        return RecursivelyEnumeratedSet(start, lambda x: [x+n for n in next_possible_arrows[x[-2]]], structure='forest', post_process = lambda x: x if next_possible_arrows[x[-2]] == [] else None)
+        return next_possible_arrows
+
+    def quiver_walks(self):
+        r'''
+            Return all walks on the quiver, that is maximal walks using arrows or antiarrows
+            Walks are represented by tuples (v0, a1, v1, ..., ak, vk) where vi are vertices and ai are arcs. 
+        '''
+        return self.enumerate_paths(self.start_walk(), self.next_possible_arrows_walk(), maximal=True)
 
     def undirected_quiver_walks(self):
         'Return only one representative per undirected walk of the quiver'
